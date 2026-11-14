@@ -1,0 +1,8 @@
+mock gemini on 4545
+POST /v1/models/gemini-3.8-flash:generateContent bytes=6837 schema=true mode=roadmap
+POST /v1/models/gemini-3.8-flash:generateContent bytes=11541 schema=true mode=transition
+POST /v1/models/gemini-3.8-flash:generateContent bytes=6842 schema=true mode=roadmap
+POST /v1/models/gemini-3.8-flash:generateContent bytes=6842 schema=true mode=roadmap
+POST /v1/models/gemini-3.8-flash:generateContent bytes=6842 schema=true mode=roadmap
+POST /v1/models/gemini-3.8-flash:generateContent bytes=6842 schema=true mode=roadmap
+POST /v1/models/gemini-3.8-flash:generateContent bytes=6842 schema=true mode=roadmap

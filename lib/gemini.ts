@@ -46,7 +46,11 @@ function getClient(): GoogleGenAI {
   if (!cachedClient) {
     cachedClient = new GoogleGenAI({
       apiKey,
-      httpOptions: { timeout: 180_000 },
+      httpOptions: {
+        timeout: 180_000,
+        // Optional: route through a proxy or gateway.
+        ...(process.env.GEMINI_BASE_URL ? { baseUrl: process.env.GEMINI_BASE_URL } : {}),
+      },
     });
   }
   return cachedClient;
