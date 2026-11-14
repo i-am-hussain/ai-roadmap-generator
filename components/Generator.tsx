@@ -484,8 +484,8 @@ export default function Generator() {
             </button>
             <p className="text-[11px] text-mist/70">
               {mode === "roadmap"
-                ? `${roadmapForm.hoursPerWeek * roadmapForm.durationWeeks || 0}h of planned work · Gemini 20-45s`
-                : "Honest feasibility read · Gemini 20-45s"}
+                ? `${roadmapForm.hoursPerWeek * roadmapForm.durationWeeks || 0}h of planned work · usually 30-90s`
+                : "Honest feasibility read · usually 30-90s"}
             </p>
           </div>
         </div>

@@ -45,8 +45,8 @@ Add a Gemini API key to `.env.local` (free key: <https://aistudio.google.com/api
 GEMINI_API_KEY=your_key_here
 ```
 
-Optionally pin a model with `GEMINI_MODEL`. If unset, the app tries `gemini-3.8-flash`, `gemini-3-flash`,
-`gemini-2.5-flash` and `gemini-2.0-flash` in order, so the app keeps working if a model name changes.
+Optionally pin a model with `GEMINI_MODEL`. If unset, the app tries `gemini-3.8-flash`, `gemini-3.7-flash`,
+`gemini-3.6-flash` and `gemini-3.5-flash` in order, so the app keeps working if a model is unavailable.
 `GEMINI_BASE_URL` can point the SDK at a proxy or gateway.
 
 Open <http://localhost:3000>.
@@ -97,4 +97,6 @@ the Node.js runtime. On serverless, the in-memory rate limiter is per-instance.
   string when unsure — verify before paying for anything.
 - Feasibility scores are a model judgement, not a hiring forecast.
 - Plans are only as good as the input: the skills list drives the entire transfer audit.
-- Model output is capped at 6 phases to keep latency and cost reasonable (usually 20–45s per plan).
+- Model output is capped at 6 phases to keep latency and cost reasonable (usually 30–90s per plan).
+- The Gemini API rejects `minItems`/`maxItems` in a response JSON Schema, so array-length limits are enforced by zod
+  validation (with one self-repair pass) and described in the schema instead of encoded as keywords.

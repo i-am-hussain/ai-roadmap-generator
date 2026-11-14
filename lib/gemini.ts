@@ -3,7 +3,12 @@ import type { z } from "zod";
 
 export type GeminiFailure = {
   message: string;
-  code: "NO_API_KEY" | "RATE_LIMIT" | "MODEL_UNAVAILABLE" | "BAD_OUTPUT" | "UNKNOWN";
+  code:
+    | "NO_API_KEY"
+    | "RATE_LIMIT"
+    | "MODEL_UNAVAILABLE"
+    | "BAD_OUTPUT"
+    | "UNKNOWN";
   status: number;
 };
 
@@ -24,9 +29,9 @@ const MODEL_CANDIDATES = Array.from(
     [
       process.env.GEMINI_MODEL,
       "gemini-3.8-flash",
-      "gemini-3-flash",
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
+      "gemini-3.7-flash",
+      "gemini-3.6-flash",
+      "gemini-3.5-flash",
     ].filter((value): value is string => Boolean(value && value.trim())),
   ),
 );
@@ -46,10 +51,14 @@ function getClient(): GoogleGenAI {
   if (!cachedClient) {
     cachedClient = new GoogleGenAI({
       apiKey,
+      // v1beta is the Gemini API surface the SDK's structured-output features target.
+      apiVersion: "v1beta",
       httpOptions: {
         timeout: 180_000,
         // Optional: route through a proxy or gateway.
-        ...(process.env.GEMINI_BASE_URL ? { baseUrl: process.env.GEMINI_BASE_URL } : {}),
+        ...(process.env.GEMINI_BASE_URL
+          ? { baseUrl: process.env.GEMINI_BASE_URL }
+          : {}),
       },
     });
   }
@@ -76,7 +85,10 @@ function extractJson(text: string): unknown {
 }
 
 function isModelUnavailable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
   return (
     message.includes("not found") ||
     message.includes("is not supported") ||
@@ -88,12 +100,38 @@ function isModelUnavailable(error: unknown): boolean {
 }
 
 function isRateLimited(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return message.includes("429") || message.includes("resource_exhausted") || message.includes("quota");
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+  return (
+    message.includes("429") ||
+    message.includes("resource_exhausted") ||
+    message.includes("quota")
+  );
+}
+
+function isTransient(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+  return (
+    message.includes("503") ||
+    message.includes("unavailable") ||
+    message.includes("overloaded") ||
+    message.includes("high demand") ||
+    message.includes("try again later") ||
+    message.includes("502") ||
+    message.includes("504")
+  );
 }
 
 function isAuthError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
   return (
     message.includes("api key not valid") ||
     message.includes("api_key_invalid") ||
@@ -126,16 +164,19 @@ export async function generateStructured<T>({
 }: GenerateArgs<T>): Promise<{ data: T; model: string }> {
   const ai = getClient();
   let lastError: unknown = null;
+  let hardFailure: unknown = null;
+  let anyTransient = false;
+  let anyNotFound = false;
 
-  for (const model of MODEL_CANDIDATES) {
-    let modelUnavailable = false;
-
+  outer: for (const model of MODEL_CANDIDATES) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const contents =
         attempt === 0
           ? prompt
           : `${prompt}\n\nYour previous answer failed validation with: ${
-              lastError instanceof Error ? lastError.message.slice(0, 900) : "unknown error"
+              lastError instanceof Error
+                ? lastError.message.slice(0, 900)
+                : "unknown error"
             }\nReturn the corrected JSON object only.`;
 
       try {
@@ -157,7 +198,9 @@ export async function generateStructured<T>({
         if (!parsed.success) {
           const issues = parsed.error.issues
             .slice(0, 6)
-            .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+            .map(
+              (issue) => `${issue.path.join(".") || "root"}: ${issue.message}`,
+            )
             .join("; ");
           throw new Error(issues);
         }
@@ -185,21 +228,61 @@ export async function generateStructured<T>({
         }
 
         if (isModelUnavailable(error)) {
-          modelUnavailable = true;
-          break;
+          anyNotFound = true;
+          continue outer;
         }
+
+        // A busy model may recover on another model; don't burn a repair attempt on it.
+        if (isTransient(error)) {
+          anyTransient = true;
+          continue outer;
+        }
+
+        // Schema or parse failure: one self-repair pass, then stop.
+        hardFailure = error;
       }
     }
 
-    // The model exists but cannot produce valid output — another model is unlikely to help.
-    if (!modelUnavailable) break;
+    // The model exists but could not produce valid output — another model is unlikely to help.
+    break;
+  }
+
+  if (hardFailure) {
+    throw new GeminiError({
+      status: 502,
+      code: "BAD_OUTPUT",
+      message: `Gemini could not produce a valid response. ${
+        hardFailure instanceof Error
+          ? hardFailure.message.slice(0, 400)
+          : "Unknown error"
+      }`,
+    });
+  }
+
+  if (anyTransient) {
+    throw new GeminiError({
+      status: 503,
+      code: "MODEL_UNAVAILABLE",
+      message:
+        "Gemini's models are busy right now (503). Give it a few seconds and try again.",
+    });
+  }
+
+  if (anyNotFound) {
+    throw new GeminiError({
+      status: 502,
+      code: "MODEL_UNAVAILABLE",
+      message: `No configured Gemini model is available (tried ${MODEL_CANDIDATES.join(", ")}). Set GEMINI_MODEL in .env.local to a model your key can access.`,
+    });
   }
 
   throw new GeminiError({
     status: 502,
     code: "BAD_OUTPUT",
-    message: `Gemini could not produce a valid roadmap. ${
-      lastError instanceof Error ? lastError.message.slice(0, 400) : "Unknown error"
+    message: `Gemini could not produce a valid response. ${
+      lastError instanceof Error
+        ? lastError.message.slice(0, 400)
+        : "Unknown error"
     }`,
   });
 }

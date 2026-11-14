@@ -31,10 +31,10 @@ const PhaseSchema = z.object({
   title: z.string(),
   duration: z.string().describe("e.g. Weeks 1-3"),
   focus: z.string().describe("The single idea this phase is about"),
-  objectives: z.array(z.string()).min(2).max(5),
-  skills: z.array(z.string()).min(2).max(8),
-  tasks: z.array(TaskSchema).min(3).max(6),
-  resources: z.array(ResourceSchema).min(1).max(4),
+  objectives: z.array(z.string()).min(2).max(5).describe("2 to 5 objectives"),
+  skills: z.array(z.string()).min(2).max(8).describe("2 to 8 concrete skills"),
+  tasks: z.array(TaskSchema).min(3).max(6).describe("3 to 6 concrete tasks"),
+  resources: z.array(ResourceSchema).min(1).max(4).describe("1 to 4 high-signal resources"),
   project: ProjectSchema,
   checkpoint: z.string().describe("How the learner can tell they are ready to move on"),
 });
@@ -46,8 +46,8 @@ export const RoadmapSchema = z.object({
   difficulty: z.enum(["beginner", "intermediate", "advanced"]),
   totalWeeks: z.number().int(),
   weeklyHours: z.number().int(),
-  outcomes: z.array(z.string()).min(3).max(7).describe("What the learner can do at the end"),
-  phases: z.array(PhaseSchema).min(3).max(6),
+  outcomes: z.array(z.string()).min(3).max(7).describe("3 to 7 outcomes: what the learner can do at the end"),
+  phases: z.array(PhaseSchema).min(3).max(6).describe("3 to 6 phases, in the exact number requested"),
   milestones: z
     .array(
       z.object({
@@ -97,7 +97,8 @@ export const TransitionSchema = z.object({
       }),
     )
     .min(3)
-    .max(8),
+    .max(8)
+    .describe("3 to 8 transferable skills taken from the person's list"),
   gaps: z
     .array(
       z.object({
@@ -109,7 +110,8 @@ export const TransitionSchema = z.object({
       }),
     )
     .min(3)
-    .max(8),
+    .max(8)
+    .describe("3 to 8 ranked gaps"),
   bridgeRoles: z
     .array(
       z.object({
@@ -154,9 +156,30 @@ export type TransitionResult = z.infer<typeof TransitionSchema>;
 export type Resource = z.infer<typeof ResourceSchema>;
 export type Task = z.infer<typeof TaskSchema>;
 
-/** Convert a zod schema into a Gemini-compatible JSON Schema. */
+/**
+ * Convert a zod schema into a Gemini-compatible JSON Schema.
+ *
+ * The live Gemini API rejects `minItems`/`maxItems` with INVALID_ARGUMENT (verified against
+ * v1beta), so those are stripped from the generation hint. They are still enforced by zod
+ * when the response is validated, so the guarantees are unchanged.
+ */
 export function toGeminiJsonSchema(schema: z.ZodType): Record<string, unknown> {
   const json = z.toJSONSchema(schema, { io: "output" }) as Record<string, unknown>;
   delete json.$schema;
-  return json;
+  return stripUnsupportedKeywords(json) as Record<string, unknown>;
+}
+
+const UNSUPPORTED_KEYWORDS = new Set(["minItems", "maxItems"]);
+
+function stripUnsupportedKeywords(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripUnsupportedKeywords);
+  if (node && typeof node === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node)) {
+      if (UNSUPPORTED_KEYWORDS.has(key)) continue;
+      out[key] = stripUnsupportedKeywords(value);
+    }
+    return out;
+  }
+  return node;
 }
