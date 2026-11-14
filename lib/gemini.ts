@@ -88,6 +88,19 @@ function isRateLimited(error: unknown): boolean {
   return message.includes("429") || message.includes("resource_exhausted") || message.includes("quota");
 }
 
+function isAuthError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("api key not valid") ||
+    message.includes("api_key_invalid") ||
+    message.includes("invalid api key") ||
+    message.includes("permission denied") ||
+    message.includes("unauthenticated") ||
+    message.includes("401") ||
+    message.includes("403")
+  );
+}
+
 type GenerateArgs<T> = {
   system: string;
   prompt: string;
@@ -109,9 +122,10 @@ export async function generateStructured<T>({
 }: GenerateArgs<T>): Promise<{ data: T; model: string }> {
   const ai = getClient();
   let lastError: unknown = null;
-  let sawRateLimit = false;
 
   for (const model of MODEL_CANDIDATES) {
+    let modelUnavailable = false;
+
     for (let attempt = 0; attempt < 2; attempt++) {
       const contents =
         attempt === 0
@@ -147,23 +161,34 @@ export async function generateStructured<T>({
         return { data: parsed.data, model };
       } catch (error) {
         lastError = error;
+
+        if (isAuthError(error)) {
+          throw new GeminiError({
+            status: 500,
+            code: "NO_API_KEY",
+            message:
+              "Gemini rejected the API key. Check GEMINI_API_KEY in .env.local and restart the server.",
+          });
+        }
+
         if (isRateLimited(error)) {
-          sawRateLimit = true;
+          throw new GeminiError({
+            status: 429,
+            code: "RATE_LIMIT",
+            message:
+              "Gemini is rate limiting this key right now. Wait a minute and try again, or set GEMINI_MODEL to a model with available quota.",
+          });
+        }
+
+        if (isModelUnavailable(error)) {
+          modelUnavailable = true;
           break;
         }
-        if (isModelUnavailable(error)) break;
       }
     }
-    if (sawRateLimit) break;
-  }
 
-  if (sawRateLimit) {
-    throw new GeminiError({
-      status: 429,
-      code: "RATE_LIMIT",
-      message:
-        "Gemini is rate limiting this key right now. Wait a minute and try again, or set GEMINI_MODEL to a model with available quota.",
-    });
+    // The model exists but cannot produce valid output — another model is unlikely to help.
+    if (!modelUnavailable) break;
   }
 
   throw new GeminiError({

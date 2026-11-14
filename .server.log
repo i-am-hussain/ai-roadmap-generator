@@ -1,0 +1,7 @@
+npm notice run ai-roadmap-generator@1.0.0 start
+npm notice run next start -p 3100
+▲ Next.js 16.4.6
+- Local:         http://localhost:3100
+- Network:       http://192.168.1.5:3100
+✓ Ready in 175ms
+✓ Running next.config.ts took 40ms
