@@ -47,6 +47,7 @@ GEMINI_API_KEY=your_key_here
 
 Optionally pin a model with `GEMINI_MODEL`. If unset, the app tries `gemini-3.8-flash`, `gemini-3-flash`,
 `gemini-2.5-flash` and `gemini-2.0-flash` in order, so the app keeps working if a model name changes.
+`GEMINI_BASE_URL` can point the SDK at a proxy or gateway.
 
 Open <http://localhost:3000>.
 

@@ -9,6 +9,8 @@ type Props = {
   onToggle: (key: string) => void;
 };
 
+const isSafeUrl = (url: string) => /^https?:\/\//i.test(url.trim());
+
 const RESOURCE_LABEL: Record<string, string> = {
   course: "Course",
   docs: "Docs",
@@ -151,9 +153,9 @@ export default function RoadmapView({ roadmap, progress, onToggle }: Props) {
                             <div key={resource.title} className="rounded-xl border border-line/70 bg-black/20 px-3.5 py-2.5">
                               <div className="flex items-start justify-between gap-2">
                                 <p className="text-[13px] font-medium text-chalk/95">
-                                  {resource.url ? (
+                                  {isSafeUrl(resource.url) ? (
                                     <a
-                                      href={resource.url}
+                                      href={resource.url.trim()}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="underline decoration-line-strong underline-offset-2 transition-colors hover:text-accent hover:decoration-accent/60"
