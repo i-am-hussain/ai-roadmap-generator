@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { RoadmapSchema, toGeminiJsonSchema } from "@/lib/schemas";
+import { RoadmapSchema, toModelJsonSchema } from "@/lib/schemas";
 import { RoadmapInputSchema } from "@/lib/types";
 import { buildRoadmapPrompt } from "@/lib/prompts";
-import { GeminiError, generateStructured } from "@/lib/gemini";
+import { AIError, generateStructured } from "@/lib/llm";
 import { checkRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
 
-const JSON_SCHEMA = toGeminiJsonSchema(RoadmapSchema);
+const JSON_SCHEMA = toModelJsonSchema(RoadmapSchema);
 
 export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ roadmap: data, model });
   } catch (error) {
-    if (error instanceof GeminiError) {
+    if (error instanceof AIError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
     console.error("[roadmap] unexpected error", error);

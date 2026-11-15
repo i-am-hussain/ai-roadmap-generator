@@ -3,7 +3,8 @@
 A Next.js app that turns a goal into a week-by-week learning roadmap, and tells career switchers exactly which
 of their existing skills carry into a new field, which gaps block them, and how to close those gaps.
 
-Powered by Google Gemini with structured JSON output, validated end-to-end with Zod.
+Runs on Google Gemini or any OpenAI-compatible model endpoint — including a local Ollama server — with structured
+JSON output validated end-to-end with Zod.
 
 ## What it does
 
@@ -39,7 +40,9 @@ cp .env.example .env.local   # then paste your key
 npm run dev
 ```
 
-Add a Gemini API key to `.env.local` (free key: <https://aistudio.google.com/apikey>):
+Then pick a provider in `.env.local`.
+
+**Gemini** (free tier, key from <https://aistudio.google.com/apikey>):
 
 ```env
 GEMINI_API_KEY=your_key_here
@@ -48,6 +51,29 @@ GEMINI_API_KEY=your_key_here
 Optionally pin a model with `GEMINI_MODEL`. If unset, the app tries `gemini-3.8-flash`, `gemini-3.7-flash`,
 `gemini-3.6-flash` and `gemini-3.5-flash` in order, so the app keeps working if a model is unavailable.
 `GEMINI_BASE_URL` can point the SDK at a proxy or gateway.
+
+**A local model** (free, no request quota — needs [Ollama](https://ollama.com) and enough RAM/VRAM):
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+```env
+AI_PROVIDER=ollama
+AI_MODEL=qwen2.5:7b
+```
+
+**Any other OpenAI-compatible endpoint** (Groq, OpenRouter free models, Cerebras, Z.ai, LM Studio, vLLM):
+
+```env
+AI_PROVIDER=openai
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_API_KEY=your_key_here
+AI_MODEL=llama-3.3-70b-versatile
+```
+
+With `AI_PROVIDER` unset the app uses Gemini when a key exists, otherwise an OpenAI-compatible endpoint when
+`AI_BASE_URL` is set. `AI_JSON_MODE=false` disables `response_format: json_object` for endpoints that reject it.
 
 Open <http://localhost:3000>.
 
@@ -69,27 +95,30 @@ components/
 lib/
   schemas.ts               Zod schemas = source of truth, converted to JSON Schema for Gemini
   prompts.ts               system + user prompts
-  gemini.ts                client, model fallback, JSON repair, validation
+  llm.ts                   provider transport (Gemini / OpenAI-compatible), retries, JSON repair, validation
   types.ts                 form types + server-side request validation
   storage.ts               localStorage persistence
   markdown.ts              export
 ```
 
 **Structured output, not parsing.** The Zod schema is converted with `z.toJSONSchema()` and passed to Gemini as
-`responseJsonSchema`. The response is parsed and validated against the same schema; if validation fails, one
-self-repair pass is attempted with the validation errors fed back. If Gemini returns an unparseable response, the
-request fails loudly instead of rendering broken UI.
+`responseJsonSchema` (for OpenAI-compatible endpoints it is embedded in the prompt, since JSON mode there is
+schema-less). The response is parsed and validated against the same schema; if validation fails, one self-repair
+pass is attempted with the validation errors fed back. Arrays that merely overshoot their maximum length are
+trimmed rather than rejected. If the model returns an unparseable response, the request fails loudly instead of
+rendering broken UI.
 
 **Budget integrity.** The learner's real weekly hours and total weeks are written back over the model's output on
 the server, so a plan can't quietly promise more time than the person has.
 
 **Data.** Plans live in `localStorage` (`pathforge.v1.items`) — no accounts, no database, nothing leaves the browser
-except the prompt sent to Gemini. API routes are rate-limited per IP in memory.
+except the prompt sent to your configured provider. API routes are rate-limited per IP in memory.
 
 ## Deploying
 
-Set `GEMINI_API_KEY` in your hosting provider's environment and build normally (`npm run build`). Route handlers run on
-the Node.js runtime. On serverless, the in-memory rate limiter is per-instance.
+Set the provider variables from `.env.example` in your hosting provider's environment and build normally
+(`npm run build`). Route handlers run on the Node.js runtime. On serverless, the in-memory rate limiter is
+per-instance, and a local Ollama endpoint is not reachable — use a hosted provider there.
 
 ## Notes & limitations
 
@@ -99,5 +128,9 @@ the Node.js runtime. On serverless, the in-memory rate limiter is per-instance.
 - Plans are only as good as the input: the skills list drives the entire transfer audit.
 - Model output is capped at 6 phases to keep latency and cost reasonable (usually 1–2 minutes per plan). A single
   generation is capped at a 200s budget across model retries, so a request cannot hang indefinitely.
-- The Gemini API rejects `minItems`/`maxItems` in a response JSON Schema, so array-length limits are enforced by zod
-  validation (with one self-repair pass) and described in the schema instead of encoded as keywords.
+- The Gemini API rejects `minItems`/`maxItems` in a response JSON Schema, so array-length limits are carried in each
+  field's description and enforced by zod afterwards: over-long arrays are trimmed, short ones trigger the
+  self-repair pass.
+- No hosted API is both free and unlimited: free tiers (Google AI Studio, Groq, OpenRouter `:free`, Cerebras) all
+  have rate or daily caps, which surface as a 429. The only uncapped option is a local model via Ollama, which
+  trades quality and speed for having no quota.

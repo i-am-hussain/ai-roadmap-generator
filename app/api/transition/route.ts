@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { TransitionSchema, toGeminiJsonSchema } from "@/lib/schemas";
+import { TransitionSchema, toModelJsonSchema } from "@/lib/schemas";
 import { TransitionInputSchema } from "@/lib/types";
 import { buildTransitionPrompt } from "@/lib/prompts";
-import { GeminiError, generateStructured } from "@/lib/gemini";
+import { AIError, generateStructured } from "@/lib/llm";
 import { checkRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
 
-const JSON_SCHEMA = toGeminiJsonSchema(TransitionSchema);
+const JSON_SCHEMA = toModelJsonSchema(TransitionSchema);
 
 export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ transition: data, model });
   } catch (error) {
-    if (error instanceof GeminiError) {
+    if (error instanceof AIError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
     console.error("[transition] unexpected error", error);

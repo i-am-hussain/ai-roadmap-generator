@@ -195,11 +195,13 @@ export default function Generator() {
         <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] px-4 py-3.5">
           <AlertIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
           <div className="text-[12.5px] leading-relaxed text-amber-100/90">
-            <p className="font-semibold">Gemini API key missing</p>
+            <p className="font-semibold">No AI provider configured</p>
             <p className="mt-1 text-amber-100/70">
               Add <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">GEMINI_API_KEY=...</code> to{" "}
-              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">.env.local</code>, then restart the
-              dev server. Grab a free key at aistudio.google.com/apikey.
+              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">.env.local</code> (free key at
+              aistudio.google.com/apikey), or point the app at a local model with{" "}
+              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">AI_PROVIDER=ollama</code>, then
+              restart the dev server.
             </p>
           </div>
         </div>
