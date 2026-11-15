@@ -484,8 +484,8 @@ export default function Generator() {
             </button>
             <p className="text-[11px] text-mist/70">
               {mode === "roadmap"
-                ? `${roadmapForm.hoursPerWeek * roadmapForm.durationWeeks || 0}h of planned work · usually 30-90s`
-                : "Honest feasibility read · usually 30-90s"}
+                ? `${roadmapForm.hoursPerWeek * roadmapForm.durationWeeks || 0}h of planned work · usually 1-2 min`
+                : "Honest feasibility read · usually 1-2 min"}
             </p>
           </div>
         </div>
@@ -567,7 +567,9 @@ function GeneratingState({ mode }: { mode: Mode }) {
             <p className="text-[13.5px] font-semibold text-chalk">
               {mode === "roadmap" ? "Designing your roadmap" : "Analysing your transition"}
             </p>
-            <p className="text-[11px] text-mist">Gemini is thinking · {seconds}s</p>
+            <p className="text-[11px] text-mist">
+              Gemini is thinking · {seconds}s{seconds > 60 ? " · complex plans can take up to two minutes" : ""}
+            </p>
           </div>
         </div>
 

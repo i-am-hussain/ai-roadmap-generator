@@ -3,12 +3,7 @@ import type { z } from "zod";
 
 export type GeminiFailure = {
   message: string;
-  code:
-    | "NO_API_KEY"
-    | "RATE_LIMIT"
-    | "MODEL_UNAVAILABLE"
-    | "BAD_OUTPUT"
-    | "UNKNOWN";
+  code: "NO_API_KEY" | "RATE_LIMIT" | "MODEL_UNAVAILABLE" | "BAD_OUTPUT" | "UNKNOWN";
   status: number;
 };
 
@@ -23,6 +18,11 @@ export class GeminiError extends Error {
     this.status = failure.status;
   }
 }
+
+/** Hard ceiling for one generation request, across model retries. */
+const GENERATION_BUDGET_MS = 200_000;
+/** Watchdog: even if the SDK stops honouring its timeout, the request must return. */
+const WATCHDOG_MS = GENERATION_BUDGET_MS + 20_000;
 
 const MODEL_CANDIDATES = Array.from(
   new Set(
@@ -54,11 +54,9 @@ function getClient(): GoogleGenAI {
       // v1beta is the Gemini API surface the SDK's structured-output features target.
       apiVersion: "v1beta",
       httpOptions: {
-        timeout: 180_000,
+        timeout: GENERATION_BUDGET_MS,
         // Optional: route through a proxy or gateway.
-        ...(process.env.GEMINI_BASE_URL
-          ? { baseUrl: process.env.GEMINI_BASE_URL }
-          : {}),
+        ...(process.env.GEMINI_BASE_URL ? { baseUrl: process.env.GEMINI_BASE_URL } : {}),
       },
     });
   }
@@ -84,11 +82,12 @@ function extractJson(text: string): unknown {
   }
 }
 
+function errorMessage(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).toLowerCase();
+}
+
 function isModelUnavailable(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(error).toLowerCase();
+  const message = errorMessage(error);
   return (
     message.includes("not found") ||
     message.includes("is not supported") ||
@@ -100,38 +99,34 @@ function isModelUnavailable(error: unknown): boolean {
 }
 
 function isRateLimited(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(error).toLowerCase();
-  return (
-    message.includes("429") ||
-    message.includes("resource_exhausted") ||
-    message.includes("quota")
-  );
+  const message = errorMessage(error);
+  return message.includes("429") || message.includes("resource_exhausted") || message.includes("quota");
 }
 
 function isTransient(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(error).toLowerCase();
+  const message = errorMessage(error);
   return (
     message.includes("503") ||
     message.includes("unavailable") ||
     message.includes("overloaded") ||
     message.includes("high demand") ||
     message.includes("try again later") ||
-    message.includes("502") ||
-    message.includes("504")
+    message.includes("502")
+  );
+}
+
+function isTimeout(error: unknown): boolean {
+  const message = errorMessage(error);
+  return (
+    message.includes("deadline") ||
+    message.includes("504") ||
+    message.includes("timed out") ||
+    message.includes("timeout")
   );
 }
 
 function isAuthError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(error).toLowerCase();
+  const message = errorMessage(error);
   return (
     message.includes("api key not valid") ||
     message.includes("api_key_invalid") ||
@@ -151,11 +146,31 @@ type GenerateArgs<T> = {
   temperature?: number;
 };
 
+const BUSY_MESSAGE =
+  "Gemini is busy or slow right now. Give it a few seconds and try again — if it keeps happening, set GEMINI_MODEL in .env.local to a lighter model.";
+
 /**
  * Ask Gemini for a JSON object and guarantee the result matches the zod schema.
- * Tries each known model in order and performs one self-repair pass on invalid JSON.
+ * Tries known models in order, performs one self-repair pass on invalid output, and is
+ * race-guarded by a watchdog so a stalled request can never hang the caller.
  */
-export async function generateStructured<T>({
+export async function generateStructured<T>(args: GenerateArgs<T>): Promise<{ data: T; model: string }> {
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
+
+  const deadline = new Promise<never>((_, reject) => {
+    watchdog = setTimeout(() => {
+      reject(new GeminiError({ status: 504, code: "MODEL_UNAVAILABLE", message: BUSY_MESSAGE }));
+    }, WATCHDOG_MS);
+  });
+
+  try {
+    return await Promise.race([runGeneration(args), deadline]);
+  } finally {
+    if (watchdog) clearTimeout(watchdog);
+  }
+}
+
+async function runGeneration<T>({
   system,
   prompt,
   schema,
@@ -163,20 +178,26 @@ export async function generateStructured<T>({
   temperature = 0.75,
 }: GenerateArgs<T>): Promise<{ data: T; model: string }> {
   const ai = getClient();
+  const startedAt = Date.now();
   let lastError: unknown = null;
   let hardFailure: unknown = null;
   let anyTransient = false;
   let anyNotFound = false;
+  let anyTimeout = false;
 
   outer: for (const model of MODEL_CANDIDATES) {
+    // Never stack long attempts: stop once the overall budget is spent.
+    if (Date.now() - startedAt > GENERATION_BUDGET_MS) {
+      anyTimeout = true;
+      break;
+    }
+
     for (let attempt = 0; attempt < 2; attempt++) {
       const contents =
         attempt === 0
           ? prompt
           : `${prompt}\n\nYour previous answer failed validation with: ${
-              lastError instanceof Error
-                ? lastError.message.slice(0, 900)
-                : "unknown error"
+              lastError instanceof Error ? lastError.message.slice(0, 900) : "unknown error"
             }\nReturn the corrected JSON object only.`;
 
       try {
@@ -197,10 +218,8 @@ export async function generateStructured<T>({
         const parsed = schema.safeParse(extractJson(text));
         if (!parsed.success) {
           const issues = parsed.error.issues
-            .slice(0, 6)
-            .map(
-              (issue) => `${issue.path.join(".") || "root"}: ${issue.message}`,
-            )
+            .slice(0, 8)
+            .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
             .join("; ");
           throw new Error(issues);
         }
@@ -213,8 +232,7 @@ export async function generateStructured<T>({
           throw new GeminiError({
             status: 500,
             code: "NO_API_KEY",
-            message:
-              "Gemini rejected the API key. Check GEMINI_API_KEY in .env.local and restart the server.",
+            message: "Gemini rejected the API key. Check GEMINI_API_KEY in .env.local and restart the server.",
           });
         }
 
@@ -238,6 +256,11 @@ export async function generateStructured<T>({
           continue outer;
         }
 
+        if (isTimeout(error)) {
+          anyTimeout = true;
+          continue outer;
+        }
+
         // Schema or parse failure: one self-repair pass, then stop.
         hardFailure = error;
       }
@@ -252,20 +275,13 @@ export async function generateStructured<T>({
       status: 502,
       code: "BAD_OUTPUT",
       message: `Gemini could not produce a valid response. ${
-        hardFailure instanceof Error
-          ? hardFailure.message.slice(0, 400)
-          : "Unknown error"
+        hardFailure instanceof Error ? hardFailure.message.slice(0, 400) : "Unknown error"
       }`,
     });
   }
 
-  if (anyTransient) {
-    throw new GeminiError({
-      status: 503,
-      code: "MODEL_UNAVAILABLE",
-      message:
-        "Gemini's models are busy right now (503). Give it a few seconds and try again.",
-    });
+  if (anyTimeout || anyTransient) {
+    throw new GeminiError({ status: 504, code: "MODEL_UNAVAILABLE", message: BUSY_MESSAGE });
   }
 
   if (anyNotFound) {
@@ -280,9 +296,7 @@ export async function generateStructured<T>({
     status: 502,
     code: "BAD_OUTPUT",
     message: `Gemini could not produce a valid response. ${
-      lastError instanceof Error
-        ? lastError.message.slice(0, 400)
-        : "Unknown error"
+      lastError instanceof Error ? lastError.message.slice(0, 400) : "Unknown error"
     }`,
   });
 }

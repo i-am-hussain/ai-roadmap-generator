@@ -6,7 +6,7 @@ import { GeminiError, generateStructured } from "@/lib/gemini";
 import { checkRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 240;
 
 const JSON_SCHEMA = toGeminiJsonSchema(RoadmapSchema);
 

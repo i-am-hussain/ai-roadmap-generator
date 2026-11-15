@@ -97,6 +97,7 @@ the Node.js runtime. On serverless, the in-memory rate limiter is per-instance.
   string when unsure — verify before paying for anything.
 - Feasibility scores are a model judgement, not a hiring forecast.
 - Plans are only as good as the input: the skills list drives the entire transfer audit.
-- Model output is capped at 6 phases to keep latency and cost reasonable (usually 30–90s per plan).
+- Model output is capped at 6 phases to keep latency and cost reasonable (usually 1–2 minutes per plan). A single
+  generation is capped at a 200s budget across model retries, so a request cannot hang indefinitely.
 - The Gemini API rejects `minItems`/`maxItems` in a response JSON Schema, so array-length limits are enforced by zod
   validation (with one self-repair pass) and described in the schema instead of encoded as keywords.
