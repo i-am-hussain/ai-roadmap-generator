@@ -1,0 +1,1 @@
+{"error":"Gemini is busy or slow right now. Give it a few seconds and try again — if this keeps happening, point the app at a lighter model (GEMINI_MODEL, or AI_MODEL for OpenAI-compatible endpoints).","code":"MODEL_UNAVAILABLE"}
