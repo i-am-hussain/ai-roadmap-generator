@@ -6,7 +6,7 @@ import { AIError, generateStructured } from "@/lib/llm";
 import { checkRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
-export const maxDuration = 240;
+export const maxDuration = 300;
 
 const JSON_SCHEMA = toModelJsonSchema(RoadmapSchema);
 

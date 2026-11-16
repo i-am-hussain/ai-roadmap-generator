@@ -20,7 +20,7 @@ const instrument = Instrument_Serif({
 export const metadata: Metadata = {
   title: "Pathforge — AI roadmaps & career transitions",
   description:
-    "Turn any goal into a week-by-week roadmap, or find out exactly how your existing skills transfer into a new field. Powered by Gemini.",
+    "Turn any goal into a week-by-week roadmap, or find out exactly how your existing skills transfer into a new field. Powered by Z.ai GLM.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -65,7 +65,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </Link>
               <span className="ml-2 hidden items-center gap-1.5 rounded-full border border-line bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-mist sm:flex">
                 <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_2px_rgba(201,247,95,0.45)]" />
-                Gemini
+                Z.ai GLM
               </span>
             </nav>
           </div>

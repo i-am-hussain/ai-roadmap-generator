@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Mode, RoadmapInput, SavedItem, TransitionInput } from "@/lib/types";
+import type {
+  Mode,
+  RoadmapInput,
+  SavedItem,
+  TransitionInput,
+} from "@/lib/types";
 import { newId, saveItem } from "@/lib/storage";
 import ResultView from "./ResultView";
 import { AlertIcon, ArrowIcon, SparkIcon, TargetIcon } from "./ui";
@@ -34,7 +39,8 @@ const EXAMPLES = {
     targetIndustry: "EdTech or public sector",
     hoursPerWeek: 10,
     timelineMonths: 9,
-    constraints: "Still teaching full time. Need to keep an income, so evenings and school holidays only.",
+    constraints:
+      "Still teaching full time. Need to keep an income, so evenings and school holidays only.",
   } satisfies TransitionInput,
 };
 
@@ -61,11 +67,16 @@ const initialTransition: TransitionInput = {
 export default function Generator() {
   const [mode, setMode] = useState<Mode>("roadmap");
   const [roadmapForm, setRoadmapForm] = useState<RoadmapInput>(initialRoadmap);
-  const [transitionForm, setTransitionForm] = useState<TransitionInput>(initialTransition);
+  const [transitionForm, setTransitionForm] =
+    useState<TransitionInput>(initialTransition);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SavedItem | null>(null);
-  const [status, setStatus] = useState<{ configured: boolean; model: string } | null>(null);
+  const [status, setStatus] = useState<{
+    configured: boolean;
+    model: string;
+    label?: string;
+  } | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -76,7 +87,8 @@ export default function Generator() {
         if (!cancelled) setStatus(data);
       })
       .catch(() => {
-        if (!cancelled) setStatus({ configured: true, model: "gemini" });
+        if (!cancelled)
+          setStatus({ configured: true, model: "unknown", label: "The model" });
       });
     return () => {
       cancelled = true;
@@ -109,12 +121,19 @@ export default function Generator() {
       return;
     }
     if (mode === "transition") {
-      if (transitionForm.currentRole.trim().length < 2 || transitionForm.targetRole.trim().length < 2) {
-        setError("Add both your current role and the role you want to move into.");
+      if (
+        transitionForm.currentRole.trim().length < 2 ||
+        transitionForm.targetRole.trim().length < 2
+      ) {
+        setError(
+          "Add both your current role and the role you want to move into.",
+        );
         return;
       }
       if (transitionForm.currentSkills.trim().length < 3) {
-        setError("List at least a few of your current skills so we can map what carries over.");
+        setError(
+          "List at least a few of your current skills so we can map what carries over.",
+        );
         return;
       }
     }
@@ -172,10 +191,15 @@ export default function Generator() {
       saveItem(item);
       setResult(item);
       requestAnimationFrame(() => {
-        resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        resultRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
       });
     } catch {
-      setError("Could not reach the server. Check your connection and try again.");
+      setError(
+        "Could not reach the server. Check your connection and try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -197,11 +221,20 @@ export default function Generator() {
           <div className="text-[12.5px] leading-relaxed text-amber-100/90">
             <p className="font-semibold">No AI provider configured</p>
             <p className="mt-1 text-amber-100/70">
-              Add <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">GEMINI_API_KEY=...</code> to{" "}
-              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">.env.local</code> (free key at
-              aistudio.google.com/apikey), or point the app at a local model with{" "}
-              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">AI_PROVIDER=ollama</code>, then
-              restart the dev server.
+              Add{" "}
+              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">
+                ZAI_API_KEY=...
+              </code>{" "}
+              to{" "}
+              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">
+                .env.local
+              </code>{" "}
+              (free GLM Flash key at z.ai/manage-apikey/apikey-list), or point
+              the app at a local model with{" "}
+              <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[11px]">
+                AI_PROVIDER=ollama
+              </code>
+              , then restart the dev server.
             </p>
           </div>
         </div>
@@ -244,7 +277,9 @@ export default function Generator() {
                   placeholder="e.g. Become a frontend developer, master motion design, pass the AWS SAA exam"
                   value={roadmapForm.goal}
                   maxLength={200}
-                  onChange={(event) => updateRoadmap({ goal: event.target.value })}
+                  onChange={(event) =>
+                    updateRoadmap({ goal: event.target.value })
+                  }
                 />
               </div>
 
@@ -257,7 +292,11 @@ export default function Generator() {
                     id="level"
                     className="field"
                     value={roadmapForm.level}
-                    onChange={(event) => updateRoadmap({ level: event.target.value as RoadmapInput["level"] })}
+                    onChange={(event) =>
+                      updateRoadmap({
+                        level: event.target.value as RoadmapInput["level"],
+                      })
+                    }
                   >
                     <option value="absolute beginner">Absolute beginner</option>
                     <option value="some basics">I know some basics</option>
@@ -276,7 +315,11 @@ export default function Generator() {
                     max={60}
                     className="field"
                     value={roadmapForm.hoursPerWeek}
-                    onChange={(event) => updateRoadmap({ hoursPerWeek: Number(event.target.value) })}
+                    onChange={(event) =>
+                      updateRoadmap({
+                        hoursPerWeek: Number(event.target.value),
+                      })
+                    }
                   />
                 </div>
                 <div>
@@ -290,7 +333,11 @@ export default function Generator() {
                     max={104}
                     className="field"
                     value={roadmapForm.durationWeeks}
-                    onChange={(event) => updateRoadmap({ durationWeeks: Number(event.target.value) })}
+                    onChange={(event) =>
+                      updateRoadmap({
+                        durationWeeks: Number(event.target.value),
+                      })
+                    }
                   />
                 </div>
               </div>
@@ -322,7 +369,9 @@ export default function Generator() {
               <div>
                 <label className="label" htmlFor="background">
                   Anything else we should know?{" "}
-                  <span className="font-normal text-mist/70">optional, but makes the plan sharper</span>
+                  <span className="font-normal text-mist/70">
+                    optional, but makes the plan sharper
+                  </span>
                 </label>
                 <textarea
                   id="background"
@@ -330,7 +379,9 @@ export default function Generator() {
                   placeholder="Your current job, what you have already tried, a deadline, a project you want to build..."
                   value={roadmapForm.background}
                   maxLength={1500}
-                  onChange={(event) => updateRoadmap({ background: event.target.value })}
+                  onChange={(event) =>
+                    updateRoadmap({ background: event.target.value })
+                  }
                 />
               </div>
             </div>
@@ -347,7 +398,9 @@ export default function Generator() {
                     placeholder="e.g. Primary school teacher, warehouse supervisor, QA tester"
                     value={transitionForm.currentRole}
                     maxLength={160}
-                    onChange={(event) => updateTransition({ currentRole: event.target.value })}
+                    onChange={(event) =>
+                      updateTransition({ currentRole: event.target.value })
+                    }
                   />
                 </div>
                 <div>
@@ -362,7 +415,11 @@ export default function Generator() {
                     step={0.5}
                     className="field"
                     value={transitionForm.yearsExperience}
-                    onChange={(event) => updateTransition({ yearsExperience: Number(event.target.value) })}
+                    onChange={(event) =>
+                      updateTransition({
+                        yearsExperience: Number(event.target.value),
+                      })
+                    }
                   />
                 </div>
               </div>
@@ -377,10 +434,13 @@ export default function Generator() {
                   placeholder="List tools, responsibilities, projects, certifications and soft skills. e.g. Excel modelling, stakeholder updates, Python basics, managing a team of 6..."
                   value={transitionForm.currentSkills}
                   maxLength={2500}
-                  onChange={(event) => updateTransition({ currentSkills: event.target.value })}
+                  onChange={(event) =>
+                    updateTransition({ currentSkills: event.target.value })
+                  }
                 />
                 <p className="mt-1.5 text-[11px] text-mist/70">
-                  Be generous here — the analysis is only as good as this list. Soft skills count too.
+                  Be generous here — the analysis is only as good as this list.
+                  Soft skills count too.
                 </p>
               </div>
 
@@ -395,12 +455,15 @@ export default function Generator() {
                     placeholder="e.g. Product designer, data analyst, DevOps engineer"
                     value={transitionForm.targetRole}
                     maxLength={160}
-                    onChange={(event) => updateTransition({ targetRole: event.target.value })}
+                    onChange={(event) =>
+                      updateTransition({ targetRole: event.target.value })
+                    }
                   />
                 </div>
                 <div>
                   <label className="label" htmlFor="targetIndustry">
-                    Industry or context <span className="font-normal text-mist/70">optional</span>
+                    Industry or context{" "}
+                    <span className="font-normal text-mist/70">optional</span>
                   </label>
                   <input
                     id="targetIndustry"
@@ -408,7 +471,9 @@ export default function Generator() {
                     placeholder="e.g. Fintech, healthcare, a startup"
                     value={transitionForm.targetIndustry}
                     maxLength={160}
-                    onChange={(event) => updateTransition({ targetIndustry: event.target.value })}
+                    onChange={(event) =>
+                      updateTransition({ targetIndustry: event.target.value })
+                    }
                   />
                 </div>
               </div>
@@ -425,7 +490,11 @@ export default function Generator() {
                     max={60}
                     className="field"
                     value={transitionForm.hoursPerWeek}
-                    onChange={(event) => updateTransition({ hoursPerWeek: Number(event.target.value) })}
+                    onChange={(event) =>
+                      updateTransition({
+                        hoursPerWeek: Number(event.target.value),
+                      })
+                    }
                   />
                 </div>
                 <div>
@@ -439,14 +508,19 @@ export default function Generator() {
                     max={60}
                     className="field"
                     value={transitionForm.timelineMonths}
-                    onChange={(event) => updateTransition({ timelineMonths: Number(event.target.value) })}
+                    onChange={(event) =>
+                      updateTransition({
+                        timelineMonths: Number(event.target.value),
+                      })
+                    }
                   />
                 </div>
               </div>
 
               <div>
                 <label className="label" htmlFor="constraints">
-                  Constraints <span className="font-normal text-mist/70">optional</span>
+                  Constraints{" "}
+                  <span className="font-normal text-mist/70">optional</span>
                 </label>
                 <textarea
                   id="constraints"
@@ -454,7 +528,9 @@ export default function Generator() {
                   placeholder="Can't quit your job, no budget for courses, need a visa-eligible role, family commitments..."
                   value={transitionForm.constraints}
                   maxLength={1200}
-                  onChange={(event) => updateTransition({ constraints: event.target.value })}
+                  onChange={(event) =>
+                    updateTransition({ constraints: event.target.value })
+                  }
                 />
               </div>
             </div>
@@ -468,7 +544,11 @@ export default function Generator() {
           ) : null}
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button type="submit" className="btn btn-primary" disabled={loading || !isConfigured}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading || !isConfigured}
+            >
               {loading ? (
                 <>
                   <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-black/25 border-t-black/80" />
@@ -476,27 +556,47 @@ export default function Generator() {
                 </>
               ) : (
                 <>
-                  {mode === "roadmap" ? <SparkIcon className="h-4 w-4" /> : <TargetIcon className="h-4 w-4" />}
-                  {mode === "roadmap" ? "Generate my roadmap" : "Analyse my transition"}
+                  {mode === "roadmap" ? (
+                    <SparkIcon className="h-4 w-4" />
+                  ) : (
+                    <TargetIcon className="h-4 w-4" />
+                  )}
+                  {mode === "roadmap"
+                    ? "Generate my roadmap"
+                    : "Analyse my transition"}
                 </>
               )}
             </button>
-            <button type="button" className="btn btn-ghost" onClick={loadExample} disabled={loading}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={loadExample}
+              disabled={loading}
+            >
               Try an example
             </button>
             <p className="text-[11px] text-mist/70">
               {mode === "roadmap"
-                ? `${roadmapForm.hoursPerWeek * roadmapForm.durationWeeks || 0}h of planned work · usually 1-2 min`
-                : "Honest feasibility read · usually 1-2 min"}
+                ? `${roadmapForm.hoursPerWeek * roadmapForm.durationWeeks || 0}h of planned work · usually 1–3 min`
+                : "Honest feasibility read · usually 2–4 min"}
             </p>
           </div>
         </div>
       </form>
 
       <div className="mt-8" ref={resultRef}>
-        {loading ? <GeneratingState mode={mode} /> : null}
+        {loading ? (
+          <GeneratingState
+            mode={mode}
+            providerLabel={status?.label ?? "The model"}
+          />
+        ) : null}
         {!loading && result ? (
-          <ResultView item={result} onDeleted={() => setResult(null)} onClose={() => setResult(null)} />
+          <ResultView
+            item={result}
+            onDeleted={() => setResult(null)}
+            onClose={() => setResult(null)}
+          />
         ) : null}
       </div>
     </div>
@@ -527,20 +627,40 @@ function ModeTab({
           : "border-transparent bg-transparent hover:border-line hover:bg-white/[0.025]"
       }`}
     >
-      <span className={`flex items-center gap-2 text-[13px] font-semibold ${active ? "text-accent" : "text-chalk/85"}`}>
+      <span
+        className={`flex items-center gap-2 text-[13px] font-semibold ${active ? "text-accent" : "text-chalk/85"}`}
+      >
         {icon}
         {title}
       </span>
-      <span className="mt-0.5 block text-[11.5px] text-mist">{description}</span>
+      <span className="mt-0.5 block text-[11.5px] text-mist">
+        {description}
+      </span>
     </button>
   );
 }
 
-function GeneratingState({ mode }: { mode: Mode }) {
+function GeneratingState({
+  mode,
+  providerLabel,
+}: {
+  mode: Mode;
+  providerLabel: string;
+}) {
   const steps =
     mode === "roadmap"
-      ? ["Reading your goal", "Sequencing the phases", "Picking high-signal resources", "Sizing the weekly load"]
-      : ["Auditing your existing skills", "Mapping what transfers", "Finding the real gaps", "Building the plan around them"];
+      ? [
+          "Reading your goal",
+          "Sequencing the phases",
+          "Picking high-signal resources",
+          "Sizing the weekly load",
+        ]
+      : [
+          "Auditing your existing skills",
+          "Mapping what transfers",
+          "Finding the real gaps",
+          "Building the plan around them",
+        ];
 
   const [step, setStep] = useState(0);
   const [seconds, setSeconds] = useState(0);
@@ -549,7 +669,10 @@ function GeneratingState({ mode }: { mode: Mode }) {
     const stepTimer = window.setInterval(() => {
       setStep((current) => Math.min(steps.length - 1, current + 1));
     }, 4500);
-    const clock = window.setInterval(() => setSeconds((current) => current + 1), 1000);
+    const clock = window.setInterval(
+      () => setSeconds((current) => current + 1),
+      1000,
+    );
     return () => {
       window.clearInterval(stepTimer);
       window.clearInterval(clock);
@@ -567,17 +690,19 @@ function GeneratingState({ mode }: { mode: Mode }) {
           </span>
           <div>
             <p className="text-[13.5px] font-semibold text-chalk">
-              {mode === "roadmap" ? "Designing your roadmap" : "Analysing your transition"}
+              {mode === "roadmap"
+                ? "Designing your roadmap"
+                : "Analysing your transition"}
             </p>
-            <p className="text-[11px] text-mist">
-              Gemini is thinking · {seconds}s{seconds > 60 ? " · complex plans can take up to two minutes" : ""}
+            <p className="text-[11px] text-mist">              {providerLabel} is thinking · {seconds}s{seconds > 60 ? " · complex plans can take a few minutes" : ""}
             </p>
           </div>
         </div>
 
         <div className="mt-6 space-y-2.5">
           {steps.map((label, index) => {
-            const state = index < step ? "done" : index === step ? "active" : "pending";
+            const state =
+              index < step ? "done" : index === step ? "active" : "pending";
             return (
               <div key={label} className="flex items-center gap-3">
                 <span
@@ -593,7 +718,11 @@ function GeneratingState({ mode }: { mode: Mode }) {
                 </span>
                 <span
                   className={`text-[12.5px] ${
-                    state === "pending" ? "text-mist/45" : state === "active" ? "text-chalk" : "text-mist"
+                    state === "pending"
+                      ? "text-mist/45"
+                      : state === "active"
+                        ? "text-chalk"
+                        : "text-mist"
                   }`}
                 >
                   {label}
@@ -606,7 +735,9 @@ function GeneratingState({ mode }: { mode: Mode }) {
         <div className="mt-7 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
           <div
             className="h-full rounded-full bg-accent/70 transition-[width] duration-1000 ease-out"
-            style={{ width: `${Math.min(92, 12 + step * 22 + seconds * 0.6)}%` }}
+            style={{
+              width: `${Math.min(92, 12 + step * 22 + seconds * 0.6)}%`,
+            }}
           />
         </div>
       </div>

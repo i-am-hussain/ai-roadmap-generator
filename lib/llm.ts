@@ -4,17 +4,25 @@ import type { z } from "zod";
 /**
  * Provider-agnostic structured generation.
  *
- * Two transports are supported:
- *   - "gemini": Google's API via @google/genai, with native responseJsonSchema support.
+ * Two transports are supported, across three provider presets:
+ *   - "zai": Z.ai's OpenAI-compatible API. Its GLM Flash models are priced at $0 with no
+ *     published daily cap (the free tier is throttled to roughly one concurrent request),
+ *     which makes it the cheapest hosted default.
  *   - "openai": any OpenAI-compatible /chat/completions endpoint — Ollama or LM Studio on
- *     localhost (free, no request quota), or a hosted service such as Groq, OpenRouter,
- *     Cerebras or Z.ai.
+ *     localhost (free, no request quota), or a hosted service such as Groq, OpenRouter or
+ *     Cerebras.
+ *   - "gemini": Google's API via @google/genai, with native responseJsonSchema support.
  *
- * Both paths share the same retry, validation, repair and watchdog behaviour, so switching
+ * All paths share the same retry, validation, repair and watchdog behaviour, so switching
  * providers never changes what the rest of the app has to handle.
  */
 
-export type AIFailureCode = "NO_API_KEY" | "RATE_LIMIT" | "MODEL_UNAVAILABLE" | "BAD_OUTPUT" | "UNKNOWN";
+export type AIFailureCode =
+  | "NO_API_KEY"
+  | "RATE_LIMIT"
+  | "MODEL_UNAVAILABLE"
+  | "BAD_OUTPUT"
+  | "UNKNOWN";
 
 export type AIFailure = {
   message: string;
@@ -34,8 +42,8 @@ export class AIError extends Error {
   }
 }
 
-/** Hard ceiling for one generation request, across model retries. */
-const GENERATION_BUDGET_MS = 200_000;
+/** Hard ceiling for one generation request, across model retries. A career-transition plan takes ~200s on the free GLM Flash tier, so this leaves headroom. */
+const GENERATION_BUDGET_MS = 280_000;
 /** Watchdog: even if the transport stops honouring its timeout, the request must return. */
 const WATCHDOG_MS = GENERATION_BUDGET_MS + 20_000;
 
@@ -52,8 +60,18 @@ const GEMINI_MODELS = Array.from(
 );
 
 const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1";
+const ZAI_DEFAULT_BASE_URL = "https://api.z.ai/api/paas/v4";
 
-type Provider = "gemini" | "openai";
+/** Free GLM Flash models; the first is the default. */
+const ZAI_MODELS = Array.from(
+  new Set(
+    [process.env.AI_MODEL, "glm-4.5-flash", "glm-4.7-flash"].filter(
+      (value): value is string => Boolean(value && value.trim()),
+    ),
+  ),
+);
+
+type Provider = "gemini" | "openai" | "zai";
 
 type ProviderConfig = {
   provider: Provider;
@@ -69,41 +87,100 @@ function explicitProvider(): string {
   return (process.env.AI_PROVIDER || "").trim().toLowerCase();
 }
 
+function zaiApiKey(): string {
+  return process.env.ZAI_API_KEY || process.env.Z_AI_API_KEY || "";
+}
+
 function pickProvider(): Provider {
   const value = explicitProvider();
-  if (value === "openai" || value === "compatible" || value === "openai-compatible" || value === "ollama") {
+  if (
+    value === "openai" ||
+    value === "compatible" ||
+    value === "openai-compatible" ||
+    value === "ollama"
+  ) {
     return "openai";
   }
+  if (
+    value === "zai" ||
+    value === "z.ai" ||
+    value === "glm" ||
+    value === "zhipu"
+  )
+    return "zai";
   if (value === "gemini") return "gemini";
-  // Unset: keep the original behaviour, but allow an OpenAI-compatible endpoint to take over.
+  // Unset: prefer Z.ai (free GLM Flash) over Gemini, then any OpenAI-compatible endpoint.
+  if (zaiApiKey()) return "zai";
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
   if (process.env.AI_BASE_URL) return "openai";
-  return "gemini";
+  return "zai";
 }
 
 /** What /api/status reports, without throwing when configuration is missing. */
-export function providerInfo(): { configured: boolean; provider: Provider; model: string } {
+export function providerInfo(): {
+  configured: boolean;
+  provider: Provider;
+  model: string;
+  label: string;
+} {
   const provider = pickProvider();
-  if (provider === "openai") {
+  if (provider === "zai") {
     return {
       provider,
-      configured: Boolean(process.env.AI_MODEL && (process.env.AI_BASE_URL || explicitProvider() === "ollama")),
+      configured: Boolean(zaiApiKey()),
+      model: process.env.AI_MODEL || "glm-4.5-flash",
+      label: "Z.ai GLM",
+    };
+  }
+  if (provider === "openai") {
+    const isOllama = explicitProvider() === "ollama";
+    return {
+      provider,
+      configured: Boolean(
+        process.env.AI_MODEL && (process.env.AI_BASE_URL || isOllama),
+      ),
       model: process.env.AI_MODEL || "unset",
+      label: isOllama ? "The local model" : "The model endpoint",
     };
   }
   return {
     provider,
-    configured: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+    configured: Boolean(
+      process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+    ),
     model: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+    label: "Gemini",
   };
 }
 
 function resolveProvider(): ProviderConfig {
   const provider = pickProvider();
 
+  if (provider === "zai") {
+    const apiKey = zaiApiKey();
+    if (!apiKey) {
+      throw new AIError({
+        status: 500,
+        code: "NO_API_KEY",
+        message:
+          "No AI provider is configured. Add ZAI_API_KEY to .env.local — the GLM Flash models are free, no card " +
+          "required (key: https://z.ai/manage-apikey/apikey-list) — or set AI_PROVIDER=ollama to run a local model.",
+      });
+    }
+
+    return {
+      provider,
+      models: ZAI_MODELS,
+      baseUrl: process.env.AI_BASE_URL || ZAI_DEFAULT_BASE_URL,
+      apiKey,
+      label: "Z.ai GLM",
+    };
+  }
+
   if (provider === "openai") {
     const isOllama = explicitProvider() === "ollama";
-    const baseUrl = process.env.AI_BASE_URL || (isOllama ? OLLAMA_DEFAULT_BASE_URL : "");
+    const baseUrl =
+      process.env.AI_BASE_URL || (isOllama ? OLLAMA_DEFAULT_BASE_URL : "");
     const model = process.env.AI_MODEL || "";
 
     if (!baseUrl || !model) {
@@ -132,8 +209,8 @@ function resolveProvider(): ProviderConfig {
       status: 500,
       code: "NO_API_KEY",
       message:
-        "No AI provider is configured. Set GEMINI_API_KEY in .env.local (free key: https://aistudio.google.com/apikey), " +
-        "or run a local model with Ollama and set AI_PROVIDER=ollama plus AI_MODEL.",
+        "No AI provider is configured. Set ZAI_API_KEY in .env.local (free GLM Flash key: https://z.ai/manage-apikey/apikey-list), " +
+        "set GEMINI_API_KEY instead, or run a local model with Ollama and set AI_PROVIDER=ollama plus AI_MODEL.",
     });
   }
 
@@ -204,17 +281,24 @@ type PathKey = string | number;
  * Short arrays are left alone — those need the model to produce more, which the self-repair
  * pass handles.
  */
-function trimOversizedArrays(root: unknown, issues: readonly ValidationIssue[]) {
+function trimOversizedArrays(
+  root: unknown,
+  issues: readonly ValidationIssue[],
+) {
   let value = root;
   let cloned = false;
   const notes: string[] = [];
 
   for (const issue of issues) {
     if (issue.code !== "too_big" || issue.maximum === undefined) continue;
-    const maximum = typeof issue.maximum === "bigint" ? Number(issue.maximum) : issue.maximum;
+    const maximum =
+      typeof issue.maximum === "bigint" ? Number(issue.maximum) : issue.maximum;
     if (!Number.isFinite(maximum)) continue;
 
-    const path = (issue.path ?? []).filter((key): key is PathKey => typeof key === "string" || typeof key === "number");
+    const path = (issue.path ?? []).filter(
+      (key): key is PathKey =>
+        typeof key === "string" || typeof key === "number",
+    );
     if (path.length === 0) continue;
 
     if (!cloned) {
@@ -224,7 +308,9 @@ function trimOversizedArrays(root: unknown, issues: readonly ValidationIssue[]) 
 
     let container = value as Record<PathKey, unknown> | undefined;
     for (const key of path.slice(0, -1)) {
-      container = (container?.[key] ?? undefined) as Record<PathKey, unknown> | undefined;
+      container = (container?.[key] ?? undefined) as
+        | Record<PathKey, unknown>
+        | undefined;
     }
 
     const lastKey = path[path.length - 1];
@@ -243,14 +329,18 @@ export type ParseResult<T> =
   | { success: false; message: string };
 
 /** Validate model output against the zod schema, trimming only over-limit arrays. */
-export function parseWithRepair<T>(schema: z.ZodType<T>, raw: unknown): ParseResult<T> {
+export function parseWithRepair<T>(
+  schema: z.ZodType<T>,
+  raw: unknown,
+): ParseResult<T> {
   const first = schema.safeParse(raw);
   if (first.success) return { success: true, data: first.data, trimmed: [] };
 
   const trimmed = trimOversizedArrays(raw, first.error.issues);
   if (trimmed.notes.length > 0) {
     const second = schema.safeParse(trimmed.value);
-    if (second.success) return { success: true, data: second.data, trimmed: trimmed.notes };
+    if (second.success)
+      return { success: true, data: second.data, trimmed: trimmed.notes };
   }
 
   const message = first.error.issues
@@ -270,7 +360,11 @@ type CallArgs = {
   temperature: number;
 };
 
-async function callGemini(config: ProviderConfig, model: string, args: CallArgs): Promise<string> {
+async function callGemini(
+  config: ProviderConfig,
+  model: string,
+  args: CallArgs,
+): Promise<string> {
   const ai = getGeminiClient(config);
   const response = await ai.models.generateContent({
     model,
@@ -295,12 +389,16 @@ type ChatRequestBody = {
   messages: ChatMessage[];
   temperature: number;
   response_format?: { type: "json_object" };
+  /** Z.ai only: GLM reasons before answering by default, which triples latency for these long plans. */
+  thinking?: { type: "enabled" | "disabled" };
 };
 
 async function postChatCompletion(
   config: ProviderConfig,
   body: ChatRequestBody,
-): Promise<{ ok: true; text: string } | { ok: false; status: number; detail: string }> {
+): Promise<
+  { ok: true; text: string } | { ok: false; status: number; detail: string }
+> {
   const url = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
   let response: Response;
@@ -327,15 +425,25 @@ async function postChatCompletion(
   }
 
   try {
-    const json = JSON.parse(raw) as { choices?: { message?: { content?: unknown } }[] };
+    const json = JSON.parse(raw) as {
+      choices?: { message?: { content?: unknown } }[];
+    };
     const content = json.choices?.[0]?.message?.content;
     return { ok: true, text: typeof content === "string" ? content : "" };
   } catch {
-    return { ok: false, status: 502, detail: `Endpoint returned non-JSON: ${raw.slice(0, 200)}` };
+    return {
+      ok: false,
+      status: 502,
+      detail: `Endpoint returned non-JSON: ${raw.slice(0, 200)}`,
+    };
   }
 }
 
-async function callOpenAICompatible(config: ProviderConfig, model: string, args: CallArgs): Promise<string> {
+async function callOpenAICompatible(
+  config: ProviderConfig,
+  model: string,
+  args: CallArgs,
+): Promise<string> {
   const body: ChatRequestBody = {
     model,
     messages: [
@@ -349,6 +457,8 @@ async function callOpenAICompatible(config: ProviderConfig, model: string, args:
       },
     ],
     temperature: args.temperature,
+    // The free GLM Flash tier is slow enough that hidden reasoning blows the generation budget.
+    ...(config.provider === "zai" ? { thinking: { type: "disabled" as const } } : {}),
   };
 
   // JSON mode is widely but not universally supported; fall back once if the endpoint rejects it.
@@ -358,12 +468,19 @@ async function callOpenAICompatible(config: ProviderConfig, model: string, args:
     jsonMode ? { ...body, response_format: { type: "json_object" } } : body,
   );
 
-  if (!result.ok && jsonMode && result.status === 400 && /response_format|json_object|json mode/i.test(result.detail)) {
+  if (
+    !result.ok &&
+    jsonMode &&
+    result.status === 400 &&
+    /response_format|json_object|json mode/i.test(result.detail)
+  ) {
     result = await postChatCompletion(config, body);
   }
 
   if (!result.ok) {
-    throw new Error(`HTTP ${result.status} from ${config.baseUrl}: ${result.detail}`);
+    throw new Error(
+      `HTTP ${result.status} from ${config.baseUrl}: ${result.detail}`,
+    );
   }
   if (!result.text.trim()) {
     throw new Error("The model returned an empty response.");
@@ -392,8 +509,12 @@ function isModelUnavailable(error: unknown): boolean {
 
 function isRateLimited(error: unknown): boolean {
   const message = errorMessage(error);
-  return message.includes("429") || message.includes("resource_exhausted") || message.includes("quota") ||
-    message.includes("rate limit");
+  return (
+    message.includes("429") ||
+    message.includes("resource_exhausted") ||
+    message.includes("quota") ||
+    message.includes("rate limit")
+  );
 }
 
 function isTransient(error: unknown): boolean {
@@ -455,7 +576,9 @@ function busyMessage(label: string): string {
  * Tries models in order, performs one self-repair pass on invalid output, and is race-guarded by
  * a watchdog so a stalled request can never hang the caller.
  */
-export async function generateStructured<T>(args: GenerateArgs<T>): Promise<{ data: T; model: string }> {
+export async function generateStructured<T>(
+  args: GenerateArgs<T>,
+): Promise<{ data: T; model: string }> {
   let watchdog: ReturnType<typeof setTimeout> | undefined;
 
   const deadline = new Promise<never>((_, reject) => {
@@ -482,7 +605,13 @@ function safeConfig(): ProviderConfig {
   try {
     return resolveProvider();
   } catch {
-    return { provider: "gemini", models: GEMINI_MODELS, baseUrl: "", apiKey: "", label: "The model provider" };
+    return {
+      provider: "gemini",
+      models: GEMINI_MODELS,
+      baseUrl: "",
+      apiKey: "",
+      label: "The model provider",
+    };
   }
 }
 
@@ -513,14 +642,26 @@ async function runGeneration<T>({
         attempt === 0
           ? prompt
           : `${prompt}\n\nYour previous answer failed validation with: ${
-              lastError instanceof Error ? lastError.message.slice(0, 900) : "unknown error"
+              lastError instanceof Error
+                ? lastError.message.slice(0, 900)
+                : "unknown error"
             }\nReturn the corrected JSON object only.`;
 
       try {
         const text =
           config.provider === "gemini"
-            ? await callGemini(config, model, { system, prompt: contents, jsonSchema, temperature })
-            : await callOpenAICompatible(config, model, { system, prompt: contents, jsonSchema, temperature });
+            ? await callGemini(config, model, {
+                system,
+                prompt: contents,
+                jsonSchema,
+                temperature,
+              })
+            : await callOpenAICompatible(config, model, {
+                system,
+                prompt: contents,
+                jsonSchema,
+                temperature,
+              });
 
         const parsed = parseWithRepair(schema, extractJson(text));
         if (!parsed.success) throw new Error(parsed.message);
@@ -548,7 +689,9 @@ async function runGeneration<T>({
               `${config.label} is rate limiting this key right now. Wait a minute and try again` +
               (config.provider === "gemini"
                 ? ", or set GEMINI_MODEL to a model with available quota."
-                : ", raise the provider's quota, or run a local model with Ollama (AI_PROVIDER=ollama) for no request limit."),
+                : config.provider === "zai"
+                  ? ". The free GLM Flash tier handles roughly one request at a time, so retry once the current one finishes."
+                  : ", raise the provider's quota, or run a local model with Ollama (AI_PROVIDER=ollama) for no request limit."),
           });
         }
 
@@ -582,13 +725,19 @@ async function runGeneration<T>({
       status: 502,
       code: "BAD_OUTPUT",
       message: `${config.label} could not produce a valid response. ${
-        hardFailure instanceof Error ? hardFailure.message.slice(0, 400) : "Unknown error"
+        hardFailure instanceof Error
+          ? hardFailure.message.slice(0, 400)
+          : "Unknown error"
       }`,
     });
   }
 
   if (anyTimeout || anyTransient) {
-    throw new AIError({ status: 504, code: "MODEL_UNAVAILABLE", message: busyMessage(config.label) });
+    throw new AIError({
+      status: 504,
+      code: "MODEL_UNAVAILABLE",
+      message: busyMessage(config.label),
+    });
   }
 
   if (anyNotFound) {
@@ -606,7 +755,9 @@ async function runGeneration<T>({
     status: 502,
     code: "BAD_OUTPUT",
     message: `${config.label} could not produce a valid response. ${
-      lastError instanceof Error ? lastError.message.slice(0, 400) : "Unknown error"
+      lastError instanceof Error
+        ? lastError.message.slice(0, 400)
+        : "Unknown error"
     }`,
   });
 }

@@ -24,7 +24,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-3xl text-center">
             <div className="inline-flex items-center gap-2 rounded-full border border-line bg-white/[0.03] px-3 py-1 text-[11px] font-medium text-mist">
               <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_2px_rgba(201,247,95,0.45)]" />
-              Two modes · powered by Gemini
+              Two modes · powered by Z.ai GLM
             </div>
 
             <h1 className="mt-6 text-balance text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">

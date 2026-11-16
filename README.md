@@ -3,8 +3,8 @@
 A Next.js app that turns a goal into a week-by-week learning roadmap, and tells career switchers exactly which
 of their existing skills carry into a new field, which gaps block them, and how to close those gaps.
 
-Runs on Google Gemini or any OpenAI-compatible model endpoint — including a local Ollama server — with structured
-JSON output validated end-to-end with Zod.
+Runs on Z.ai's free GLM Flash models by default, or on Google Gemini, any OpenAI-compatible model endpoint, or a
+local Ollama server — with structured JSON output validated end-to-end with Zod.
 
 ## What it does
 
@@ -42,7 +42,20 @@ npm run dev
 
 Then pick a provider in `.env.local`.
 
-**Gemini** (free tier, key from <https://aistudio.google.com/apikey>):
+**Z.ai GLM Flash** (default; free, no card, no daily request cap — free key from
+<https://z.ai/manage-apikey/apikey-list>):
+
+```env
+ZAI_API_KEY=your_key_here
+```
+
+The app calls `glm-4.5-flash` and falls back to `glm-4.7-flash`, both free (\$0 input and output, no card). The free
+tier is throttled to roughly one request at a time rather than a daily budget, so a plan may need a retry if another
+request is still running. Thinking mode is disabled on these requests — with it on, a single plan exceeded the
+timeout. Expect about 1–2 minutes for a roadmap and 3–4 minutes for a career-transition analysis. Pin a different
+GLM id with `AI_MODEL`.
+
+**Gemini** (optional; free tier, key from <https://aistudio.google.com/apikey>):
 
 ```env
 GEMINI_API_KEY=your_key_here
@@ -63,7 +76,7 @@ AI_PROVIDER=ollama
 AI_MODEL=qwen2.5:7b
 ```
 
-**Any other OpenAI-compatible endpoint** (Groq, OpenRouter free models, Cerebras, Z.ai, LM Studio, vLLM):
+**Any other OpenAI-compatible endpoint** (Groq, OpenRouter free models, Cerebras, LM Studio, vLLM):
 
 ```env
 AI_PROVIDER=openai
@@ -72,8 +85,9 @@ AI_API_KEY=your_key_here
 AI_MODEL=llama-3.3-70b-versatile
 ```
 
-With `AI_PROVIDER` unset the app uses Gemini when a key exists, otherwise an OpenAI-compatible endpoint when
-`AI_BASE_URL` is set. `AI_JSON_MODE=false` disables `response_format: json_object` for endpoints that reject it.
+With `AI_PROVIDER` unset the app uses Z.ai when `ZAI_API_KEY` exists, then Gemini when a Google key exists, then an
+OpenAI-compatible endpoint when `AI_BASE_URL` is set. Set `AI_PROVIDER` explicitly to override that order.
+`AI_JSON_MODE=false` disables `response_format: json_object` for endpoints that reject it.
 
 Open <http://localhost:3000>.
 
@@ -95,7 +109,7 @@ components/
 lib/
   schemas.ts               Zod schemas = source of truth, converted to JSON Schema for Gemini
   prompts.ts               system + user prompts
-  llm.ts                   provider transport (Gemini / OpenAI-compatible), retries, JSON repair, validation
+  llm.ts                   provider transport (Z.ai / OpenAI-compatible / Gemini), retries, JSON repair, validation
   types.ts                 form types + server-side request validation
   storage.ts               localStorage persistence
   markdown.ts              export
@@ -126,11 +140,12 @@ per-instance, and a local Ollama endpoint is not reachable — use a hosted prov
   string when unsure — verify before paying for anything.
 - Feasibility scores are a model judgement, not a hiring forecast.
 - Plans are only as good as the input: the skills list drives the entire transfer audit.
-- Model output is capped at 6 phases to keep latency and cost reasonable (usually 1–2 minutes per plan). A single
-  generation is capped at a 200s budget across model retries, so a request cannot hang indefinitely.
+- Model output is capped at 6 phases to keep latency and cost reasonable (roughly 1–4 minutes per plan on the free
+  tier). A single generation is capped at a 280s budget across model retries, so a request cannot hang indefinitely.
 - The Gemini API rejects `minItems`/`maxItems` in a response JSON Schema, so array-length limits are carried in each
   field's description and enforced by zod afterwards: over-long arrays are trimmed, short ones trigger the
-  self-repair pass.
-- No hosted API is both free and unlimited: free tiers (Google AI Studio, Groq, OpenRouter `:free`, Cerebras) all
-  have rate or daily caps, which surface as a 429. The only uncapped option is a local model via Ollama, which
-  trades quality and speed for having no quota.
+  self-repair pass. OpenAI-compatible endpoints embed the schema in the prompt instead.
+- Z.ai publishes no numeric free quota for the GLM Flash models, but the free tier is throttle-limited (about one
+  concurrent request), so bursts of generations can return a 429. Other free tiers (Google AI Studio, Groq,
+  OpenRouter `:free`, Cerebras) have daily caps. A local model via Ollama is the only option with no external quota
+  at all, at the cost of quality and speed.
