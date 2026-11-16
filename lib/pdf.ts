@@ -247,24 +247,29 @@ function roadmapSections(w: Writer, roadmap: Roadmap, progress: Record<string, b
 
   w.sectionTitle("The plan");
   roadmap.phases.forEach((phase, phaseIndex) => {
+    const objectives = phase.objectives ?? [];
+    const skills = phase.skills ?? [];
+    const tasks = phase.tasks ?? [];
+    const resources = phase.resources ?? [];
+
     w.subheading(
       `Phase ${phaseIndex + 1}: ${phase.title}`,
       `${phase.duration} | ${phase.focus}`,
     );
 
-    if (phase.objectives.length) {
+    if (objectives.length) {
       w.paragraph("Objectives", { font: w.bold, size: 9, color: MUTED });
-      phase.objectives.forEach((objective) => w.bullet(objective, { size: 9.5 }));
+      objectives.forEach((objective) => w.bullet(objective, { size: 9.5 }));
       w.space(4);
     }
 
-    w.paragraph(`Skills: ${phase.skills.join(", ")}`, { size: 9, color: MUTED, gap: 6 });
+    if (skills.length) w.paragraph(`Skills: ${skills.join(", ")}`, { size: 9, color: MUTED, gap: 6 });
 
-    phase.tasks.forEach((task, taskIndex) => {
+    tasks.forEach((task, taskIndex) => {
       w.task(Boolean(progress[`${phase.id}:${taskIndex}`]), task.title, task.detail, task.hours);
     });
 
-    phase.resources.forEach((resource) => {
+    resources.forEach((resource) => {
       w.card(
         `${resource.title} (${resource.type}, ${resource.provider})`,
         resource.why,
@@ -272,10 +277,12 @@ function roadmapSections(w: Writer, roadmap: Roadmap, progress: Record<string, b
       );
     });
 
-    w.paragraph(`Project: ${phase.project.title}`, { font: w.bold, size: 9.5, gap: 2 });
-    w.paragraph(phase.project.brief, { size: 9.5, color: MUTED, gap: 2 });
-    w.paragraph(`Deliverable: ${phase.project.deliverable}`, { size: 9.5, gap: 6 });
-    w.paragraph(`Checkpoint: ${phase.checkpoint}`, { size: 9.5, font: w.italic, color: MUTED });
+    if (phase.project) {
+      w.paragraph(`Project: ${phase.project.title}`, { font: w.bold, size: 9.5, gap: 2 });
+      w.paragraph(phase.project.brief, { size: 9.5, color: MUTED, gap: 2 });
+      w.paragraph(`Deliverable: ${phase.project.deliverable}`, { size: 9.5, gap: 6 });
+    }
+    if (phase.checkpoint) w.paragraph(`Checkpoint: ${phase.checkpoint}`, { size: 9.5, font: w.italic, color: MUTED });
   });
 
   w.sectionTitle("Milestones");

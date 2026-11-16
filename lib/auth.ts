@@ -104,9 +104,11 @@ function toSessionUser(user: UserDoc): SessionUser {
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
-  if (!mongoConfigured()) return null;
   try {
+    // Always read cookies first: it marks auth-aware pages as dynamic so a build without
+    // secrets can never freeze a signed-out header or account page into static HTML.
     const jar = await cookies();
+    if (!mongoConfigured()) return null;
     const userId = readSessionToken(jar.get(SESSION_COOKIE)?.value);
     if (!userId || !ObjectId.isValid(userId)) return null;
     const found = await (await users()).findOne({ _id: new ObjectId(userId) });

@@ -111,10 +111,10 @@ function pickProvider(): Provider {
   if (value === "groq") return "groq";
   if (value === "cerebras") return "cerebras";
   if (value === "gemini") return "gemini";
-  // Unset: prefer Z.ai (free GLM Flash), then the fast free tiers, then Gemini.
-  if (zaiApiKey()) return "zai";
+  // Unset: prefer the fast free tiers when their keys exist, then Z.ai GLM Flash, then Gemini.
   if (process.env.GROQ_API_KEY) return "groq";
   if (process.env.CEREBRAS_API_KEY) return "cerebras";
+  if (zaiApiKey()) return "zai";
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
   if (process.env.AI_BASE_URL) return "openai";
   return "zai";

@@ -3,8 +3,11 @@
 A Next.js app that turns a goal into a week-by-week learning roadmap, and tells career switchers exactly which
 of their existing skills carry into a new field, which gaps block them, and how to close those gaps.
 
-Runs on Z.ai's free GLM Flash models by default, or on Google Gemini, any OpenAI-compatible model endpoint, or a
-local Ollama server — with structured JSON output validated end-to-end with Zod.
+Runs on Z.ai's free GLM Flash models by default, or on Groq, Cerebras, Google Gemini, any OpenAI-compatible model
+endpoint, or a local Ollama server — with structured JSON output validated end-to-end with Zod.
+
+Accounts are Google-only (OAuth, no passwords), plans live in MongoDB, and every account gets three free
+generations before the (not yet connected) paid plan.
 
 ## What it does
 
@@ -12,7 +15,7 @@ local Ollama server — with structured JSON output validated end-to-end with Zo
 You get:
 
 - 3–6 phases with durations, objectives and the specific skills each phase covers
-- Concrete, hour-sized tasks (with a checkbox each, progress saved in your browser)
+- Concrete, hour-sized tasks (with a checkbox each, progress saved to your account)
 - One primary course/docs set and a community per phase, with a reason for each
 - A build per phase and an objective checkpoint before moving on
 - Milestones with observable proof, a portfolio-grade final project
@@ -30,17 +33,34 @@ you want and your real constraints. You get:
 - Copy-ready **positioning**: narrative, headline, resume bullets and ATS keywords
 - A roadmap built around the gaps, not a generic curriculum
 
-Both modes: markdown export, copy-to-clipboard, saved-plan library, and per-task progress tracking.
+Both modes: a detailed multi-page PDF export, markdown export, copy-to-clipboard, an account library, and per-task
+progress tracking.
 
 ## Quickstart
 
 ```bash
 npm install
-cp .env.example .env.local   # then paste your key
+cp .env.example .env.local   # then fill in the accounts + provider values
 npm run dev
 ```
 
-Then pick a provider in `.env.local`.
+### Accounts (required)
+
+The generator, library and free-try counter all need a signed-in user, so these four values are mandatory:
+
+1. **MongoDB** — create a free M0 cluster at <https://www.mongodb.com/cloud/atlas/register>, then
+   *Connect → Drivers* and copy the `mongodb+srv://…` string into `MONGODB_URI`. Add your current IP under
+   *Network Access*.
+2. **Google OAuth** — in <https://console.cloud.google.com/apis/credentials> create an *OAuth client ID* of type
+   *Web application*. Add `http://localhost:3000/api/auth/google/callback` as an authorized redirect URI. Copy the
+   client ID and secret into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+3. **Session secret** — set `AUTH_SECRET` to the output of `openssl rand -hex 32`.
+
+Restart the dev server after changing `.env.local`, then open <http://localhost:3000> and sign in.
+
+### Providers
+
+Pick one in `.env.local`.
 
 **Z.ai GLM Flash** (default; free, no card, no daily request cap — free key from
 <https://z.ai/manage-apikey/apikey-list>):
@@ -85,8 +105,22 @@ AI_API_KEY=your_key_here
 AI_MODEL=llama-3.3-70b-versatile
 ```
 
-With `AI_PROVIDER` unset the app uses Z.ai when `ZAI_API_KEY` exists, then Gemini when a Google key exists, then an
-OpenAI-compatible endpoint when `AI_BASE_URL` is set. Set `AI_PROVIDER` explicitly to override that order.
+**Groq / Cerebras** (free tiers — the fast path, seconds per plan instead of minutes):
+
+```env
+GROQ_API_KEY=your_key_here      # https://console.groq.com/keys
+```
+
+or
+
+```env
+AI_PROVIDER=cerebras
+CEREBRAS_API_KEY=your_key_here  # https://cloud.cerebras.ai
+```
+
+Their free tiers are capped per day (Groq ~200k tokens/day, Cerebras ~1M tokens/day) but are 10–50× faster than
+the GLM Flash free tier. With `AI_PROVIDER` unset the app uses Groq, then Cerebras, then Z.ai, then Gemini, then an
+OpenAI-compatible endpoint (`AI_BASE_URL`). Set `AI_PROVIDER` explicitly to override that order.
 `AI_JSON_MODE=false` disables `response_format: json_object` for endpoints that reject it.
 
 Open <http://localhost:3000>.
@@ -97,21 +131,30 @@ Open <http://localhost:3000>.
 app/
   page.tsx                 landing + generator
   library/                 saved plans (list + detail)
-  api/roadmap/route.ts     POST → roadmap JSON
+  account/, login/         profile, roadmap count, trial status, sign-in
+  api/roadmap/route.ts     POST → roadmap JSON (auth + quota gated, saved to Mongo)
   api/transition/route.ts  POST → transfer analysis + roadmap JSON
+  api/plans/               per-user library CRUD + PDF download
+  api/auth/google/         OAuth start + callback, logout
   api/status/route.ts      whether a key is configured
 components/
-  Generator.tsx            both forms, validation, loading state
+  Generator.tsx            both forms, validation, loading state, trial meter
   RoadmapView.tsx          phases, tasks, resources, milestones
   TransitionView.tsx       verdict, transfer audit, gaps, positioning
-  ResultView.tsx           header, progress, export
+  ResultView.tsx           header, progress, PDF/markdown export
   Library.tsx / SavedPlan.tsx
+  UpgradePanel.tsx         pricing + placeholder checkout
 lib/
   schemas.ts               Zod schemas = source of truth, converted to JSON Schema for Gemini
   prompts.ts               system + user prompts
-  llm.ts                   provider transport (Z.ai / OpenAI-compatible / Gemini), retries, JSON repair, validation
+  llm.ts                   provider transport (Z.ai / Groq / Cerebras / OpenAI-compatible / Gemini)
   types.ts                 form types + server-side request validation
-  storage.ts               localStorage persistence
+  db.ts                    MongoDB client + collections/indexes
+  auth.ts                  Google OAuth, signed session cookie
+  plans.ts                 plan documents ↔ API shapes
+  quota.ts                 three free generations, reserved before a model call
+  pdf.ts                   multi-page PDF renderer (pdf-lib, no headless browser)
+  storage.ts               browser-side library API client
   markdown.ts              export
 ```
 
@@ -125,8 +168,10 @@ rendering broken UI.
 **Budget integrity.** The learner's real weekly hours and total weeks are written back over the model's output on
 the server, so a plan can't quietly promise more time than the person has.
 
-**Data.** Plans live in `localStorage` (`pathforge.v1.items`) — no accounts, no database, nothing leaves the browser
-except the prompt sent to your configured provider. API routes are rate-limited per IP in memory.
+**Data.** Plans are stored in MongoDB, scoped to the signed-in user. Sessions are a signed, httpOnly cookie; there
+is no password to store. Each generation reserves one of the three free slots *before* the model is called and
+releases it if generation fails, so failed attempts are not charged. API routes are also rate-limited per IP in
+memory.
 
 ## Deploying
 
@@ -146,6 +191,10 @@ per-instance, and a local Ollama endpoint is not reachable — use a hosted prov
   field's description and enforced by zod afterwards: over-long arrays are trimmed, short ones trigger the
   self-repair pass. OpenAI-compatible endpoints embed the schema in the prompt instead.
 - Z.ai publishes no numeric free quota for the GLM Flash models, but the free tier is throttle-limited (about one
-  concurrent request), so bursts of generations can return a 429. Other free tiers (Google AI Studio, Groq,
-  OpenRouter `:free`, Cerebras) have daily caps. A local model via Ollama is the only option with no external quota
-  at all, at the cost of quality and speed.
+  concurrent request) and slow, so bursts of generations can return a 429. Other free tiers (Google AI Studio, Groq,
+  OpenRouter `:free`, Cerebras) have daily caps but are far faster. A local model via Ollama is the only option with
+  no external quota at all, at the cost of quality and speed.
+- The free plan is three generations per account. Checkout is deliberately a placeholder: the upgrade button opens a
+  "not connected yet" dialog and never charges anything.
+- Google sign-in and MongoDB must be configured before the generator works; without them the app explains what is
+  missing instead of failing silently.
