@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type {
   Mode,
@@ -7,7 +8,12 @@ import type {
   SavedItem,
   TransitionInput,
 } from "@/lib/types";
-import { newId, saveItem } from "@/lib/storage";
+
+type Me = {
+  user: { name: string; email: string; picture: string } | null;
+  quota: { used: number; limit: number; remaining: number; unlimited: boolean } | null;
+  roadmapCount: number;
+};
 import ResultView from "./ResultView";
 import { AlertIcon, ArrowIcon, SparkIcon, TargetIcon } from "./ui";
 
@@ -72,12 +78,29 @@ export default function Generator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SavedItem | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  const [paywalled, setPaywalled] = useState(false);
   const [status, setStatus] = useState<{
     configured: boolean;
     model: string;
     label?: string;
   } | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/me")
+      .then((response) => response.json())
+      .then((data: Me) => {
+        if (!cancelled) setMe(data);
+      })
+      .catch(() => {
+        /* signed-out state simply stays unknown */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,6 +162,7 @@ export default function Generator() {
     }
 
     setError(null);
+    setPaywalled(false);
     setLoading(true);
     setResult(null);
 
@@ -155,41 +179,26 @@ export default function Generator() {
       const data = await response.json();
 
       if (!response.ok) {
+        if (data?.code === "PAYMENT_REQUIRED") {
+          setPaywalled(true);
+          setLoading(false);
+          return;
+        }
+        if (data?.code === "UNAUTHORIZED") {
+          setMe((current) =>
+            current ? { ...current, user: null } : { user: null, quota: null, roadmapCount: 0 },
+          );
+        }
         setError(data?.error ?? "Something went wrong. Please try again.");
         setLoading(false);
         return;
       }
 
-      let item: SavedItem;
-      if (mode === "roadmap") {
-        const roadmap = data.roadmap;
-        item = {
-          id: newId(),
-          kind: "roadmap",
-          createdAt: new Date().toISOString(),
-          title: roadmap.title,
-          subtitle: roadmap.tagline,
-          input: roadmapForm,
-          roadmap,
-          progress: {},
-        };
-      } else {
-        const transition = data.transition;
-        item = {
-          id: newId(),
-          kind: "transition",
-          createdAt: new Date().toISOString(),
-          title: transition.headline,
-          subtitle: transition.summary,
-          input: transitionForm,
-          roadmap: transition.roadmap,
-          transition,
-          progress: {},
-        };
-      }
-
-      saveItem(item);
+      const item = data.item as SavedItem;
       setResult(item);
+      if (data.quota) {
+        setMe((current) => (current ? { ...current, quota: data.quota } : current));
+      }
       requestAnimationFrame(() => {
         resultRef.current?.scrollIntoView({
           behavior: "smooth",
@@ -237,6 +246,28 @@ export default function Generator() {
               , then restart the dev server.
             </p>
           </div>
+        </div>
+      ) : null}
+
+      {me && !me.user ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/25 bg-accent/[0.06] px-4 py-3">
+          <p className="text-[12.5px] leading-relaxed text-chalk/90">
+            Sign in with Google to generate. Every account gets <strong className="font-semibold text-chalk">3 free plans</strong>.
+          </p>
+          <Link href="/login?next=/" className="btn btn-primary text-xs">
+            Continue with Google
+          </Link>
+        </div>
+      ) : null}
+
+      {me?.user && me.quota ? (
+        <div className="mb-3 flex items-center gap-2 text-[11.5px] text-mist">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${me.quota.unlimited || me.quota.remaining > 0 ? "bg-accent" : "bg-amber-300"}`}
+          />
+          {me.quota.unlimited
+            ? "Unlimited plans on your account"
+            : `${me.quota.remaining} of ${me.quota.limit} free plans left`}
         </div>
       ) : null}
 
@@ -583,6 +614,24 @@ export default function Generator() {
           </div>
         </div>
       </form>
+
+      {paywalled ? (
+        <div className="panel mt-6 border-amber-400/30 bg-amber-400/[0.05] p-6">
+          <p className="text-[15px] font-semibold text-chalk">You have used your 3 free plans</p>
+          <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-mist">
+            Paid plans are not live yet, so checkout is disabled. Everything you have already generated stays in your
+            library and can still be downloaded as a PDF.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Link href="/account" className="btn btn-primary text-xs">
+              See plans
+            </Link>
+            <Link href="/library" className="btn btn-ghost text-xs">
+              Open your library
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-8" ref={resultRef}>
         {loading ? (

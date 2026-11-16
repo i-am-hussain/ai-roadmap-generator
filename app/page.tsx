@@ -43,7 +43,7 @@ export default function HomePage() {
               <span className="hidden h-1 w-1 rounded-full bg-line-strong sm:block" />
               <span>Transferable-skill audit</span>
               <span className="hidden h-1 w-1 rounded-full bg-line-strong sm:block" />
-              <span>Progress saved on your device</span>
+              <span>Saved to your account · PDF export</span>
             </div>
           </div>
         </div>

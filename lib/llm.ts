@@ -71,7 +71,7 @@ const ZAI_MODELS = Array.from(
   ),
 );
 
-type Provider = "gemini" | "openai" | "zai";
+type Provider = "gemini" | "openai" | "zai" | "groq" | "cerebras";
 
 type ProviderConfig = {
   provider: Provider;
@@ -108,9 +108,13 @@ function pickProvider(): Provider {
     value === "zhipu"
   )
     return "zai";
+  if (value === "groq") return "groq";
+  if (value === "cerebras") return "cerebras";
   if (value === "gemini") return "gemini";
-  // Unset: prefer Z.ai (free GLM Flash) over Gemini, then any OpenAI-compatible endpoint.
+  // Unset: prefer Z.ai (free GLM Flash), then the fast free tiers, then Gemini.
   if (zaiApiKey()) return "zai";
+  if (process.env.GROQ_API_KEY) return "groq";
+  if (process.env.CEREBRAS_API_KEY) return "cerebras";
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
   if (process.env.AI_BASE_URL) return "openai";
   return "zai";
@@ -132,6 +136,16 @@ export function providerInfo(): {
       label: "Z.ai GLM",
     };
   }
+  if (provider === "groq" || provider === "cerebras") {
+    const groq = provider === "groq";
+    return {
+      provider,
+      configured: Boolean(groq ? process.env.GROQ_API_KEY : process.env.CEREBRAS_API_KEY),
+      model: process.env.AI_MODEL || (groq ? "openai/gpt-oss-120b" : "gpt-oss-120b"),
+      label: groq ? "Groq" : "Cerebras",
+    };
+  }
+
   if (provider === "openai") {
     const isOllama = explicitProvider() === "ollama";
     return {
@@ -174,6 +188,26 @@ function resolveProvider(): ProviderConfig {
       baseUrl: process.env.AI_BASE_URL || ZAI_DEFAULT_BASE_URL,
       apiKey,
       label: "Z.ai GLM",
+    };
+  }
+
+  if (provider === "groq" || provider === "cerebras") {
+    const groq = provider === "groq";
+    const apiKey = groq ? process.env.GROQ_API_KEY : process.env.CEREBRAS_API_KEY;
+    if (!apiKey) {
+      throw new AIError({
+        status: 500,
+        code: "NO_API_KEY",
+        message: `AI_PROVIDER=${provider} needs ${groq ? "GROQ_API_KEY" : "CEREBRAS_API_KEY"} in .env.local (free tier, no card).`,
+      });
+    }
+
+    return {
+      provider,
+      models: [process.env.AI_MODEL || (groq ? "openai/gpt-oss-120b" : "gpt-oss-120b")],
+      baseUrl: groq ? "https://api.groq.com/openai/v1" : "https://api.cerebras.ai/v1",
+      apiKey,
+      label: groq ? "Groq" : "Cerebras",
     };
   }
 

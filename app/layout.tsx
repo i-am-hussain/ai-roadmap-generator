@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Instrument_Serif } from "next/font/google";
 import Link from "next/link";
+import { getSessionUser } from "@/lib/auth";
 import "./globals.css";
 
 const inter = Inter({
@@ -23,7 +24,8 @@ export const metadata: Metadata = {
     "Turn any goal into a week-by-week roadmap, or find out exactly how your existing skills transfer into a new field. Powered by Z.ai GLM.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = await getSessionUser();
   return (
     <html lang="en" className={`${inter.variable} ${instrument.variable}`}>
       <body className="min-h-screen font-sans antialiased">
@@ -63,10 +65,36 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               >
                 Library
               </Link>
-              <span className="ml-2 hidden items-center gap-1.5 rounded-full border border-line bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-mist sm:flex">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_2px_rgba(201,247,95,0.45)]" />
-                Z.ai GLM
-              </span>
+              <Link
+                href="/account"
+                className="rounded-lg px-3 py-1.5 text-mist transition-colors hover:bg-white/5 hover:text-chalk"
+              >
+                Account
+              </Link>
+              {user ? (
+                <Link
+                  href="/account"
+                  className="ml-2 flex items-center gap-2 rounded-full border border-line bg-white/[0.03] py-1 pl-1 pr-3 text-[11.5px] font-medium text-mist transition-colors hover:border-line-strong hover:text-chalk"
+                  title={user.email}
+                >
+                  {user.picture ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.picture} alt="" className="h-6 w-6 rounded-full" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-accent/15 text-[10px] text-accent">
+                      {user.name.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="max-w-[90px] truncate">{user.name.split(" ")[0]}</span>
+                </Link>
+              ) : (
+                <Link
+                  href="/login"
+                  className="ml-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/15"
+                >
+                  Sign in
+                </Link>
+              )}
             </nav>
           </div>
         </header>

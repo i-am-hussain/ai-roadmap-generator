@@ -38,7 +38,9 @@ export default function ResultView({ item, onDeleted, onClose }: Props) {
     if (next[key]) delete next[key];
     else next[key] = true;
     setProgress(next);
-    saveProgress(item.id, next);
+    void saveProgress(item.id, next).catch(() => {
+      /* offline: the click still applies for this session */
+    });
   }
 
   function exportMarkdown() {
@@ -56,10 +58,14 @@ export default function ResultView({ item, onDeleted, onClose }: Props) {
     window.setTimeout(() => setExported(false), 1800);
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!window.confirm("Delete this plan from your library? This cannot be undone.")) return;
-    deleteItem(item.id);
-    onDeleted?.();
+    try {
+      await deleteItem(item.id);
+      onDeleted?.();
+    } catch {
+      window.alert("Could not delete this plan. Please try again.");
+    }
   }
 
   const isTransition = item.kind === "transition" && item.transition;
@@ -102,6 +108,10 @@ export default function ResultView({ item, onDeleted, onClose }: Props) {
             </div>
 
             <div className="mt-5 flex flex-wrap items-center gap-2">
+              <a href={`/api/plans/${item.id}/pdf`} className="btn btn-primary text-xs">
+                <DownloadIcon className="h-3.5 w-3.5" />
+                Download PDF
+              </a>
               <button type="button" onClick={exportMarkdown} className="btn btn-ghost text-xs">
                 <DownloadIcon className="h-3.5 w-3.5" />
                 {exported ? "Downloaded" : "Markdown"}
@@ -127,7 +137,7 @@ export default function ResultView({ item, onDeleted, onClose }: Props) {
             <ProgressRing value={percent} size={62} />
             <div className="lg:text-center">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mist">Progress</p>
-              <p className="mt-0.5 text-[11px] text-mist/80">{done}/{total} tasks · saved locally</p>
+              <p className="mt-0.5 text-[11px] text-mist/80">{done}/{total} tasks · saved to your account</p>
             </div>
           </div>
         </div>
